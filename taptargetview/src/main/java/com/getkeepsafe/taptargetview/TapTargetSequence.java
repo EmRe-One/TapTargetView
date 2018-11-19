@@ -17,8 +17,8 @@ package com.getkeepsafe.taptargetview;
 
 import android.app.Activity;
 import android.app.Dialog;
-import android.support.annotation.Nullable;
-import android.support.annotation.UiThread;
+import androidx.annotation.Nullable;
+import androidx.annotation.UiThread;
 
 import java.util.Collections;
 import java.util.LinkedList;
@@ -174,10 +174,7 @@ public class TapTargetSequence {
    */
   @UiThread
   public boolean cancel() {
-    if (targets.isEmpty() || !active) {
-      return false;
-    }
-    if (currentView == null || !currentView.cancelable) {
+    if (!active || currentView == null || !currentView.cancelable) {
       return false;
     }
     currentView.dismiss(false);
@@ -198,6 +195,7 @@ public class TapTargetSequence {
         currentView = TapTargetView.showFor(dialog, tapTarget, tapTargetListener);
       }
     } catch (NoSuchElementException e) {
+      currentView = null;
       // No more targets
       if (listener != null) {
         listener.onSequenceFinish();

@@ -37,7 +37,7 @@ import android.graphics.Region;
 import android.graphics.Typeface;
 import android.graphics.drawable.Drawable;
 import android.os.Build;
-import android.support.annotation.Nullable;
+import androidx.annotation.Nullable;
 import android.text.DynamicLayout;
 import android.text.Layout;
 import android.text.SpannableStringBuilder;
@@ -273,6 +273,7 @@ public class TapTargetView extends View {
         @Override
         public void onEnd() {
           pulseAnimation.start();
+          isInteractable = true;
         }
       })
       .build();
@@ -311,8 +312,7 @@ public class TapTargetView extends View {
       .onEnd(new FloatValueAnimatorBuilder.EndListener() {
         @Override
         public void onEnd() {
-          onDismiss(true);
-          ViewUtil.removeView(parent, TapTargetView.this);
+          finishDismiss(true);
         }
       })
       .build();
@@ -340,8 +340,7 @@ public class TapTargetView extends View {
       .onEnd(new FloatValueAnimatorBuilder.EndListener() {
         @Override
         public void onEnd() {
-          onDismiss(true);
-          ViewUtil.removeView(parent, TapTargetView.this);
+          finishDismiss(true);
         }
       })
       .build();
@@ -427,6 +426,23 @@ public class TapTargetView extends View {
 
     applyTargetOptions(context);
 
+    final boolean hasKitkat = Build.VERSION.SDK_INT >= Build.VERSION_CODES.KITKAT;
+    final boolean translucentStatusBar;
+    final boolean translucentNavigationBar;
+    final boolean layoutNoLimits;
+
+    if (context instanceof Activity) {
+      Activity activity = (Activity) context;
+      final int flags = activity.getWindow().getAttributes().flags;
+      translucentStatusBar = hasKitkat && (flags & WindowManager.LayoutParams.FLAG_TRANSLUCENT_STATUS) != 0;
+      translucentNavigationBar = hasKitkat && (flags & WindowManager.LayoutParams.FLAG_TRANSLUCENT_NAVIGATION) != 0;
+      layoutNoLimits = (flags & WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS) != 0;
+    } else {
+      translucentStatusBar = false;
+      translucentNavigationBar = false;
+      layoutNoLimits = false;
+    }
+
     globalLayoutListener = new ViewTreeObserver.OnGlobalLayoutListener() {
       @Override
       public void onGlobalLayout() {
@@ -452,21 +468,32 @@ public class TapTargetView extends View {
 
               final Rect rect = new Rect();
               boundingParent.getWindowVisibleDisplayFrame(rect);
+              int[] parentLocation = new int[2];
+              boundingParent.getLocationInWindow(parentLocation);
+
+              if (translucentStatusBar) {
+                rect.top = parentLocation[1];
+              }
+              if (translucentNavigationBar) {
+                rect.bottom = parentLocation[1] + boundingParent.getHeight();
+              }
 
               // We bound the boundaries to be within the screen's coordinates to
-              // handle the case where the layout bounds do not match
-              // (like when FLAG_LAYOUT_NO_LIMITS is specified)
-              topBoundary = Math.max(0, rect.top);
-              bottomBoundary = Math.min(rect.bottom, displayMetrics.heightPixels);
+              // handle the case where the flag FLAG_LAYOUT_NO_LIMITS is set
+              if (layoutNoLimits) {
+                topBoundary = Math.max(0, rect.top);
+                bottomBoundary = Math.min(rect.bottom, displayMetrics.heightPixels);
+              } else {
+                topBoundary = rect.top;
+                bottomBoundary = rect.bottom;
+              }
             }
 
             drawTintedTarget();
             requestFocus();
             calculateDimensions();
-            if (!visible) {
-              expandAnimation.start();
-              visible = true;
-            }
+
+            startExpandAnimation();
           }
         });
       }
@@ -514,8 +541,16 @@ public class TapTargetView extends View {
     });
   }
 
+  private void startExpandAnimation() {
+    if (!visible) {
+      isInteractable = false;
+      expandAnimation.start();
+      visible = true;
+    }
+  }
+
   protected void applyTargetOptions(Context context) {
-    shouldTintTarget = target.tintTarget;
+    shouldTintTarget = !target.transparentTarget && target.tintTarget;
     shouldDrawShadow = target.drawShadow;
     cancelable = target.cancelable;
 
@@ -740,11 +775,20 @@ public class TapTargetView extends View {
     isDismissing = true;
     pulseAnimation.cancel();
     expandAnimation.cancel();
+    if (!visible || outerCircleCenter == null) {
+      finishDismiss(tappedTarget);
+      return;
+    }
     if (tappedTarget) {
       dismissConfirmAnimation.start();
     } else {
       dismissAnimation.start();
     }
+  }
+
+  private void finishDismiss(boolean userInitiated) {
+    onDismiss(userInitiated);
+    ViewUtil.removeView(parent, TapTargetView.this);
   }
 
   /** Specify whether to draw a wireframe around the view, useful for debugging **/
